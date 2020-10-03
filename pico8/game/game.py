@@ -439,6 +439,118 @@ class Game():
         return code_length, code, compressed_size
 
     @classmethod
+    def decompress_v02_code(cls, codedata):
+        """Decompresses compressed code data using ver 0.2 decompression.
+
+        Args:
+          codedata: The bytes of the code region (0x4300:0x8000).
+
+        Returns:
+          The tuple (code_length, code, compressed_size). code is a bytestring.
+        """
+        code_length = (codedata[4] << 8) | codedata[5]
+        compressed_code_length = (codedata[6] << 8) | codedata[7]
+
+        # Here we use the 256 possible values of a byte:
+        ASCII = list(range(256))
+        out = [0] * code_length
+        in_i = 8
+        out_i = 0
+        bit_i = 0
+        
+        # log = [] #DEBUG
+
+        def read_bit():
+            nonlocal in_i, bit_i
+            bit = (codedata[in_i] & (1 << bit_i)) >> bit_i
+            bit_i += 1
+            if bit_i > 7:
+                bit_i = 0
+                in_i += 1
+            return bit
+
+        def read_bits(L):
+            bits = 0
+            for i in range(L):
+                bits |= ( read_bit() << i )
+            return bits
+
+        # def iif(test, correct, wrong):
+        #     return correct if
+            
+
+        while out_i < code_length and in_i < len(codedata):
+            
+            # b = codedata[in_i] 
+            header = read_bit()
+            if header == 1:
+                unary = 0
+                while read_bit():
+                    unary += 1
+                unary_mask = (1 << unary) - 1
+                index = read_bits(4 + unary) + (unary_mask << 4)
+                # print('\tindex: #',index,'=', chr(index) )
+                out[out_i] = ASCII[index]
+                out_i += 1
+                # Update the dictionary
+                e = ASCII.pop(index)
+                ASCII.insert(0, e)
+                
+            else:
+                # break
+                # -- read the offset
+                # offset_bits = read_bit() and (read_bit() and 5 or 10) or 15
+                offset_bits = 15
+                if read_bit():
+                    if read_bit():
+                        offset_bits = 5 
+                    else:
+                        offset_bits = 10
+                offset = read_bits(offset_bits) + 1
+                
+                # -- read the length
+                length = 3
+                # repeat
+                while True:
+                    part = read_bits(3)
+                    length += part
+                    # until part != 7
+                    if part != 7:
+                        break
+                
+                # print(f'@{out_i:8} o:{offset:8} l:{length:3} ', bytes(out[out_i - offset:out_i - offset + length]))
+                # sign = '#' if length > offset else ' '
+                # cur = repr(bytes(out[out_i - 20:out_i +1]))[1:]
+                # dat = repr(bytes(out[out_i - offset:out_i - offset + length]))
+                # log.append(f'{sign} {out_i:6}  o:{offset:6} l:{length:3}  |{cur}|  {dat}')
+                
+                
+                # out[out_i:out_i + length] = out[out_i - offset:out_i - offset + length] #!failed, if length>offset
+                # out_i += length
+                out_o = out_i
+                copied = 0
+                possible = min(offset, length)
+                while copied < length:
+                    possible = min(possible, length-copied)
+                    out[out_i:out_i + possible] = out[out_o - offset:out_o - offset + possible] 
+                    copied += possible
+                    out_i += possible
+
+        code = bytes(out).strip(b'\x00')
+        if code.endswith(PICO8_FUTURE_CODE1):
+            code = code[:-len(PICO8_FUTURE_CODE1)]
+            if code[-1] == b'\n'[0]:
+                code = code[:-1]
+        if code.endswith(PICO8_FUTURE_CODE2):
+            code = code[:-len(PICO8_FUTURE_CODE2)]
+            if code[-1] == b'\n'[0]:
+                code = code[:-1]
+
+        compressed_size = in_i
+
+        return code_length, code, compressed_size
+
+    @classmethod
     def get_code_from_bytes(cls, codedata, version):
         """Gets the code text from the byte data.
 
@@ -451,7 +563,9 @@ class Game():
           None if the code data was not compressed. code is a bytestring.
         """
 
-        if version == 0 or bytes(codedata[:4]) != b':c:\x00':
+        if bytes(codedata[:4]) == b'\x00pxa':            
+            code_length, code, compressed_size = cls.decompress_v02_code(codedata)
+        elif version == 0 or bytes(codedata[:4]) != b':c:\x00':
             # code is ASCII
 
             try:
