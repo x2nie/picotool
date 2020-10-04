@@ -285,6 +285,10 @@ def writep8(g, out_fname, args=None):
       out_fname: The output filename.
       args: The argparse parsed args object, or None.
     """
+    if out_fname.endswith('.p8.png'):
+        out_fname = out_fname[:-len('.png')] 
+    out_fname = out_fname.replace('_fmt.p8','_out.p8')
+    print('writep8.filename=', out_fname) #x2nie
     g.to_file(filename=out_fname)
 
 
